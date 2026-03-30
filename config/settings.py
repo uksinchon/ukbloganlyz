@@ -20,21 +20,28 @@ for d in [DATA_DIR, LOG_DIR, REPORT_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ============================================================
-# 블로그 설정
+# 블로그 설정 - 3그룹: 신촌지사 / 본사 / 경쟁사
 # ============================================================
-OWN_BLOGS = {
-    "UK유학센터 메인": "ukcentre",
-    "UK유학센터 서브": "ukcentre1",
+SINCHON_BLOGS = {
+    "영국유학센터 신촌지사": "pedu2",
 }
 
+HQ_BLOGS = {
+    "영국유학센터 본사①": "ukcentre",
+    "영국유학센터 본사②": "ukcentre1",
+}
+
+# 본사 전체 (신촌지사 + 본사)
+OWN_BLOGS = {**SINCHON_BLOGS, **HQ_BLOGS}
+
 COMPETITOR_BLOGS = {
-    "유켄유학원 메인": "ukenkorea",
-    "유켄유학원 서브": "ukenkorea1",
+    "유켄유학원①": "ukenkorea",
+    "유켄유학원②": "ukenkorea1",
+    "SAUK 서울": "theukcom",
+    "SAUK 부산": "saukbusan",
     "EDM유학": "edmedu",
     "IDP유학": "idp_uk",
     "더유학": "uhakbooking",
-    "SAUK 메인": "theukcom",
-    "SAUK 부산": "saukbusan",
     "유학시그널": "uhaksignal",
     "디지털조선일보": "ukchosun",
     "종로유학": "chongroblog",
@@ -42,6 +49,9 @@ COMPETITOR_BLOGS = {
 }
 
 ALL_BLOGS = {**OWN_BLOGS, **COMPETITOR_BLOGS}
+
+# 사용자 추가 경쟁사 저장 파일
+CUSTOM_COMPETITORS_FILE = DATA_DIR / "custom_competitors.json"
 
 NAVER_BLOG_BASE_URL = "https://blog.naver.com/{blog_id}"
 NAVER_BLOG_RSS_URL = "https://rss.blog.naver.com/{blog_id}.xml"
