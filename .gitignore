@@ -1,0 +1,35 @@
+# Environment
+.env
+*.pyc
+__pycache__/
+*.pyo
+
+# Data & Reports (generated)
+data/*.db
+data/processed_emails.json
+data/publish_log.json
+reports/output/
+logs/
+
+# Keep sample/analysis data for cloud deployment
+!data/posts.json
+!data/analysis_*.json
+
+# Credentials
+credentials.json
+token.json
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual Environment
+venv/
+.venv/
+env/

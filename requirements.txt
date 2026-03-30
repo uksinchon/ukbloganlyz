@@ -1,0 +1,43 @@
+# Web Scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+feedparser>=6.0.0
+playwright>=1.40.0
+
+# Data Processing
+pandas>=2.1.0
+
+# NLP / Text Analysis (konlpy는 Java 필요 - 선택설치: pip install konlpy)
+scikit-learn>=1.3.0
+
+# AI
+anthropic>=0.39.0
+
+# PDF Reports
+reportlab>=4.0.0
+matplotlib>=3.8.0
+
+# Web Dashboard
+streamlit>=1.29.0
+plotly>=5.18.0
+
+# Email
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.1.1
+google-auth-oauthlib>=1.1.0
+
+# Threads API
+httpx>=0.25.0
+
+# Scheduling
+apscheduler>=3.10.0
+
+# Config
+python-dotenv>=1.0.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Logging
+loguru>=0.7.0
