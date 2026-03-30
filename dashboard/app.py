@@ -1,0 +1,259 @@
+"""
+Streamlit 웹 대시보드
+- 실시간 블로그 분석 현황 시각화
+- 인터랙티브 필터링 및 드릴다운
+
+실행: streamlit run dashboard/app.py
+"""
+import json
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
+import pandas as pd
+
+# 프로젝트 루트 추가
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from config.settings import DATA_DIR, OWN_BLOGS, COMPETITOR_BLOGS, ALL_BLOGS
+
+# ============================================================
+# 페이지 설정
+# ============================================================
+st.set_page_config(
+    page_title="UK Centre - Blog Analysis Dashboard",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ============================================================
+# 데이터 로드
+# ============================================================
+@st.cache_data(ttl=300)
+def load_posts():
+    posts_file = DATA_DIR / "posts.json"
+    if posts_file.exists():
+        with open(posts_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("posts", [])
+    return []
+
+
+@st.cache_data(ttl=300)
+def load_latest_analysis():
+    analysis_files = sorted(DATA_DIR.glob("analysis_*.json"), reverse=True)
+    if analysis_files:
+        with open(analysis_files[0], "r", encoding="utf-8") as f:
+            return json.load(f)
+    return None
+
+
+def posts_to_df(posts):
+    if not posts:
+        return pd.DataFrame()
+    df = pd.DataFrame(posts)
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    if "categories" in df.columns:
+        df["main_category"] = df["categories"].apply(
+            lambda x: x[0] if isinstance(x, list) and x else "미분류"
+        )
+    return df
+
+
+# ============================================================
+# 사이드바
+# ============================================================
+st.sidebar.title("🇬🇧 UK Centre Blog Analyzer")
+st.sidebar.markdown("---")
+
+# 날짜 필터
+date_range = st.sidebar.selectbox(
+    "분석 기간",
+    ["최근 1일", "최근 7일", "최근 30일", "최근 90일", "전체"],
+    index=2,
+)
+
+date_map = {
+    "최근 1일": 1, "최근 7일": 7, "최근 30일": 30,
+    "최근 90일": 90, "전체": 9999,
+}
+days = date_map[date_range]
+
+# 블로그 필터
+blog_filter = st.sidebar.multiselect(
+    "블로그 선택",
+    options=list(ALL_BLOGS.keys()),
+    default=list(ALL_BLOGS.keys()),
+)
+selected_blog_ids = {ALL_BLOGS[name] for name in blog_filter}
+
+# ============================================================
+# 데이터 준비
+# ============================================================
+posts = load_posts()
+df = posts_to_df(posts)
+analysis = load_latest_analysis()
+
+if not df.empty:
+    cutoff = datetime.now() - timedelta(days=days)
+    df = df[df["date"] >= cutoff] if "date" in df.columns else df
+    df = df[df["blog_id"].isin(selected_blog_ids)] if "blog_id" in df.columns else df
+
+# ============================================================
+# 메인 대시보드
+# ============================================================
+st.title("📊 경쟁사 블로그 분석 대시보드")
+st.markdown(f"**분석 기간**: {date_range} | **마지막 업데이트**: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+if df.empty:
+    st.warning("데이터가 없습니다. 먼저 스크래핑을 실행해주세요: `python -m scraper.naver_blog_scraper`")
+    st.stop()
+
+# ---- KPI 카드 ----
+own_ids = set(OWN_BLOGS.values())
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("전체 포스트", f"{len(df)}건")
+col2.metric("본사 포스트", f"{len(df[df['blog_id'].isin(own_ids)])}건")
+col3.metric("경쟁사 포스트", f"{len(df[~df['blog_id'].isin(own_ids)])}건")
+col4.metric("활성 블로그", f"{df['blog_id'].nunique()}개")
+
+st.markdown("---")
+
+# ---- 탭 구성 ----
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📈 포스팅 트렌드", "🏢 블로그별 현황", "🏷️ 주제별 분석",
+    "⚔️ 본사 vs 경쟁사", "🤖 AI 인사이트",
+])
+
+# ---- Tab 1: 포스팅 트렌드 ----
+with tab1:
+    st.subheader("일별 포스팅 트렌드")
+    if "date" in df.columns:
+        daily = df.groupby(df["date"].dt.date).size().reset_index(name="count")
+        daily.columns = ["date", "count"]
+        fig = px.line(daily, x="date", y="count", title="Daily Posting Trend")
+        fig.update_traces(line_color="#1976D2")
+        st.plotly_chart(fig, use_container_width=True)
+
+        # 본사 vs 경쟁사 트렌드
+        df["is_own"] = df["blog_id"].isin(own_ids)
+        df["group"] = df["is_own"].map({True: "UK Centre (본사)", False: "경쟁사"})
+        group_daily = df.groupby([df["date"].dt.date, "group"]).size().reset_index(name="count")
+        group_daily.columns = ["date", "group", "count"]
+        fig2 = px.line(group_daily, x="date", y="count", color="group",
+                       title="Own vs Competitor Daily Trend")
+        st.plotly_chart(fig2, use_container_width=True)
+
+# ---- Tab 2: 블로그별 현황 ----
+with tab2:
+    st.subheader("블로그별 포스팅 수")
+    blog_counts = df.groupby("blog_name").size().reset_index(name="count").sort_values("count", ascending=True)
+    fig = px.bar(blog_counts, x="count", y="blog_name", orientation="h",
+                 title="Posts per Blog", color="count", color_continuous_scale="Blues")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("최근 포스트")
+    recent = df.sort_values("date", ascending=False).head(20)
+    st.dataframe(
+        recent[["date", "blog_name", "title", "url"]].reset_index(drop=True),
+        use_container_width=True,
+    )
+
+# ---- Tab 3: 주제별 분석 ----
+with tab3:
+    st.subheader("주제별 포스팅 분포")
+    if "main_category" in df.columns:
+        cat_counts = df["main_category"].value_counts().reset_index()
+        cat_counts.columns = ["category", "count"]
+        fig = px.pie(cat_counts, values="count", names="category",
+                     title="Topic Distribution", hole=0.3)
+        st.plotly_chart(fig, use_container_width=True)
+
+        # 주제별 블로그 히트맵
+        if "blog_name" in df.columns:
+            cross = pd.crosstab(df["blog_name"], df["main_category"])
+            fig = px.imshow(cross, text_auto=True, title="Blog x Topic Heatmap",
+                          color_continuous_scale="YlOrRd")
+            st.plotly_chart(fig, use_container_width=True)
+
+# ---- Tab 4: 본사 vs 경쟁사 ----
+with tab4:
+    st.subheader("본사 vs 경쟁사 비교")
+
+    if "main_category" in df.columns:
+        own_df = df[df["blog_id"].isin(own_ids)]
+        comp_df = df[~df["blog_id"].isin(own_ids)]
+
+        own_cats = own_df["main_category"].value_counts().to_dict()
+        comp_cats = comp_df["main_category"].value_counts().to_dict()
+
+        all_cats = sorted(set(list(own_cats.keys()) + list(comp_cats.keys())))
+        comparison_df = pd.DataFrame({
+            "주제": all_cats,
+            "UK Centre (본사)": [own_cats.get(c, 0) for c in all_cats],
+            "경쟁사": [comp_cats.get(c, 0) for c in all_cats],
+        })
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(name="UK Centre", x=comparison_df["주제"],
+                            y=comparison_df["UK Centre (본사)"], marker_color="#1976D2"))
+        fig.add_trace(go.Bar(name="경쟁사", x=comparison_df["주제"],
+                            y=comparison_df["경쟁사"], marker_color="#FF7043"))
+        fig.update_layout(barmode="group", title="Topic Comparison: Own vs Competitors")
+        st.plotly_chart(fig, use_container_width=True)
+
+        # 놓치는 주제 경고
+        st.subheader("⚠️ 놓치고 있는 주제")
+        missed = []
+        for cat in all_cats:
+            own_count = own_cats.get(cat, 0)
+            comp_count = comp_cats.get(cat, 0)
+            if comp_count > 0 and own_count == 0:
+                missed.append({"주제": cat, "경쟁사 포스트": comp_count, "상태": "미다룸"})
+            elif comp_count > own_count * 2 and comp_count > 2:
+                missed.append({"주제": cat, "경쟁사 포스트": comp_count, "상태": "부족"})
+
+        if missed:
+            st.error("아래 주제들을 경쟁사가 더 활발히 다루고 있습니다!")
+            st.dataframe(pd.DataFrame(missed), use_container_width=True)
+        else:
+            st.success("현재 주요 트렌드를 놓치지 않고 있습니다!")
+
+# ---- Tab 5: AI 인사이트 ----
+with tab5:
+    st.subheader("AI 심층 분석")
+    if analysis and analysis.get("ai_analysis"):
+        st.markdown(analysis["ai_analysis"])
+    else:
+        st.info("AI 분석 결과가 없습니다. ANTHROPIC_API_KEY를 설정하고 분석을 실행해주세요.")
+
+    if analysis:
+        st.subheader("최근 분석 요약")
+        st.json({
+            "분석 기간": analysis.get("period"),
+            "생성 시각": analysis.get("generated_at"),
+            "총 포스트": analysis.get("total_posts"),
+        })
+
+# ---- 사이드바 하단 ----
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📋 리포트 다운로드")
+report_files = sorted(Path(DATA_DIR).parent.glob("reports/output/*.pdf"), reverse=True)
+if report_files:
+    latest_report = report_files[0]
+    with open(latest_report, "rb") as f:
+        st.sidebar.download_button(
+            label=f"📥 최신 PDF 다운로드",
+            data=f.read(),
+            file_name=latest_report.name,
+            mime="application/pdf",
+        )
+else:
+    st.sidebar.info("PDF 리포트가 아직 생성되지 않았습니다.")
+
+st.sidebar.markdown("---")
+st.sidebar.caption("UK Centre Blog Analysis System v1.0")
