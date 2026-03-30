@@ -351,10 +351,129 @@ with tab4:
 # ---- Tab 5: AI 인사이트 ----
 with tab5:
     st.subheader("🤖 AI 심층 분석")
+
+    # AI 분석 실행 버튼
+    if st.button("🔮 AI 분석 실행", use_container_width=True, type="primary"):
+        from config.settings import ANTHROPIC_API_KEY
+        if not ANTHROPIC_API_KEY:
+            st.error("⚠️ ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+            st.info("""
+**Streamlit Cloud 설정 방법:**
+1. 앱 우측 하단 **Manage app** 클릭
+2. **Settings** → **Secrets** 탭
+3. 아래 내용 입력 후 Save:
+```toml
+ANTHROPIC_API_KEY = "sk-ant-여기에_키_입력"
+```
+4. 앱이 자동 재시작됩니다
+            """)
+        else:
+            with st.spinner("Claude AI가 경쟁사 트렌드를 심층 분석 중... (30초~1분 소요)"):
+                try:
+                    import json as _json
+                    from collections import Counter
+                    import anthropic
+
+                    # 현재 대시보드 데이터에서 분석 데이터 구성
+                    own_ids_set = set(OWN_BLOGS.values())
+                    own_posts = df[df["blog_id"].isin(own_ids_set)]
+                    comp_posts = df[~df["blog_id"].isin(own_ids_set)]
+
+                    own_cats = own_posts["main_category"].value_counts().to_dict() if "main_category" in df.columns else {}
+                    comp_cats = comp_posts["main_category"].value_counts().to_dict() if "main_category" in df.columns else {}
+
+                    # 놓치는 주제
+                    missed = {}
+                    for cat in set(list(own_cats.keys()) + list(comp_cats.keys())):
+                        oc = own_cats.get(cat, 0)
+                        cc = comp_cats.get(cat, 0)
+                        if cc > 0 and oc == 0:
+                            missed[cat] = cc
+                        elif cc > oc * 2:
+                            missed[cat] = cc
+
+                    # 최근 포스트 제목
+                    recent_titles = df.sort_values("date", ascending=False).head(30)
+                    titles_by_blog = {}
+                    for _, row in recent_titles.iterrows():
+                        blog = row.get("blog_name", "")
+                        title = row.get("title", "")
+                        if blog not in titles_by_blog:
+                            titles_by_blog[blog] = []
+                        titles_by_blog[blog].append(title)
+
+                    prompt = f"""당신은 영국 유학 시장 전문 분석가입니다.
+아래는 최근 영국 유학 관련 블로그 포스팅 분석 데이터입니다.
+
+## 분석 기간: {date_range}
+## 전체 포스트: {len(df)}건 (본사 {len(own_posts)}건 / 경쟁사 {len(comp_posts)}건)
+
+## 본사(UK유학센터) 주제 분포
+{_json.dumps(own_cats, ensure_ascii=False)}
+
+## 경쟁사 주제 분포
+{_json.dumps(comp_cats, ensure_ascii=False)}
+
+## 본사가 놓치고 있는 주제
+{_json.dumps(missed, ensure_ascii=False)}
+
+## 블로그별 최근 포스트 제목
+{_json.dumps(titles_by_blog, ensure_ascii=False, indent=1)}
+
+위 데이터를 바탕으로 다음을 분석해주세요:
+
+1. **🔥 주요 트렌드**: 현재 업계에서 가장 많이 다루는 주제 3-5개
+2. **⚠️ 놓치는 기회**: 경쟁사가 다루지만 본사(UK유학센터)가 놓치고 있는 주제와 이유
+3. **🏢 경쟁사 동향**: 주요 경쟁사들의 콘텐츠 전략 패턴 (어떤 경쟁사가 어떤 분야에 집중하는지)
+4. **✍️ 추천 콘텐츠**: 본사가 즉시 작성해야 할 블로그 주제 5개 (구체적 제목 포함)
+5. **🔑 키워드 기회**: SEO 관점에서 선점할 수 있는 키워드 5개
+
+한국어로 작성하고, 실행 가능한 구체적 인사이트를 제공하세요. 각 섹션은 마크다운으로 포맷팅하세요."""
+
+                    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+                    response = client.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=2500,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    ai_result = response.content[0].text
+
+                    # 분석 결과 저장
+                    analysis_save = {
+                        "period": date_range,
+                        "generated_at": datetime.now().isoformat(),
+                        "total_posts": len(df),
+                        "ai_analysis": ai_result,
+                        "posting_by_category": df["main_category"].value_counts().to_dict() if "main_category" in df.columns else {},
+                        "top_keywords": [],
+                        "own_vs_competitor": {
+                            "own_total": len(own_posts),
+                            "competitor_total": len(comp_posts),
+                            "own_categories": own_cats,
+                            "competitor_categories": comp_cats,
+                            "missed_topics": missed,
+                        },
+                    }
+                    analysis_file = DATA_DIR / f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    with open(analysis_file, "w", encoding="utf-8") as f:
+                        _json.dump(analysis_save, f, ensure_ascii=False, indent=2)
+
+                    st.success("✅ AI 분석 완료!")
+                    st.cache_data.clear()
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"AI 분석 실패: {e}")
+
+    st.markdown("---")
+
+    # 저장된 AI 분석 결과 표시
+    analysis = load_latest_analysis()  # 최신 분석 다시 로드
     if analysis and analysis.get("ai_analysis"):
         st.markdown(analysis["ai_analysis"])
+        st.caption(f"분석 시각: {analysis.get('generated_at', '-')}")
     else:
-        st.info("AI 분석 결과가 없습니다. ANTHROPIC_API_KEY를 설정하고 '📊 분석 실행' 버튼을 클릭해주세요.")
+        st.info("아직 AI 분석 결과가 없습니다. 위의 '🔮 AI 분석 실행' 버튼을 클릭하세요.")
 
     st.markdown("---")
 
@@ -363,7 +482,8 @@ with tab5:
         col_x, col_y, col_z = st.columns(3)
         col_x.metric("분석 기간", analysis.get("period", "-"))
         col_y.metric("총 포스트", f"{analysis.get('total_posts', 0)}건")
-        col_z.metric("생성 시각", analysis.get("generated_at", "-")[:16] if analysis.get("generated_at") else "-")
+        generated = analysis.get("generated_at", "")
+        col_z.metric("생성 시각", generated[:16] if generated else "-")
 
     # 상위 키워드
     if analysis and analysis.get("top_keywords"):

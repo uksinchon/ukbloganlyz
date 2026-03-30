@@ -50,9 +50,22 @@ NAVER_BLOG_POST_LIST_URL = "https://blog.naver.com/PostList.naver?blogId={blog_i
 # ============================================================
 # API 키 설정
 # ============================================================
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID", "")
-NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")
+# API 키 설정 (환경변수 또는 Streamlit secrets 지원)
+# ============================================================
+def _get_secret(key: str, default: str = "") -> str:
+    """환경변수 → Streamlit secrets 순서로 API 키 조회"""
+    val = os.getenv(key, "")
+    if val:
+        return val
+    try:
+        import streamlit as st
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+ANTHROPIC_API_KEY = _get_secret("ANTHROPIC_API_KEY")
+NAVER_CLIENT_ID = _get_secret("NAVER_CLIENT_ID")
+NAVER_CLIENT_SECRET = _get_secret("NAVER_CLIENT_SECRET")
 
 # Gmail API
 GMAIL_CREDENTIALS_FILE = os.getenv("GMAIL_CREDENTIALS_FILE", str(BASE_DIR / "credentials.json"))
