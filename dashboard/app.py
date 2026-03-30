@@ -83,6 +83,8 @@ with st.sidebar.expander("🔄 데이터 수집", expanded=False):
                 posts = scraper.scrape_all_blogs()
                 st.success(f"✅ {len(posts)}개 신규 포스트 수집!")
                 st.cache_data.clear()
+            except ImportError:
+                st.error("스크래핑 모듈을 로드할 수 없습니다. 로컬 서버에서 실행해주세요.")
             except Exception as e:
                 st.error(f"스크래핑 실패: {e}")
 
@@ -97,6 +99,8 @@ with st.sidebar.expander("🔄 데이터 수집", expanded=False):
                 analysis = analyzer.generate_full_analysis("최근 30일")
                 st.success(f"✅ {len(recent)}개 포스트 분석 완료!")
                 st.cache_data.clear()
+            except ImportError:
+                st.error("분석 모듈을 로드할 수 없습니다. 로컬 서버에서 실행해주세요.")
             except Exception as e:
                 st.error(f"분석 실패: {e}")
 
