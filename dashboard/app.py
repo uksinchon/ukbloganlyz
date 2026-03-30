@@ -157,15 +157,18 @@ period_days = {"당일": 1, "최근 1주일": 7, "최근 한달": 30}[period]
 # ---- 데이터 수집 ----
 with st.sidebar.expander("🔄 데이터 수집"):
     if st.button("📡 스크래핑 실행", use_container_width=True):
-        with st.spinner("스크래핑 중..."):
-            try:
-                from scraper.naver_blog_scraper import NaverBlogScraper
-                scraper = NaverBlogScraper()
-                posts = scraper.scrape_all_blogs()
-                st.success(f"✅ {len(posts)}개 수집!")
-                st.cache_data.clear()
-            except Exception as e:
-                st.error(f"실패: {e}")
+        progress_area = st.empty()
+        try:
+            from scraper.naver_blog_scraper import NaverBlogScraper
+            scraper = NaverBlogScraper()
+            scraper.on_progress = lambda msg: progress_area.caption(msg)
+            posts = scraper.scrape_all_blogs()
+            progress_area.empty()
+            st.success(f"✅ {len(posts)}개 수집!")
+            st.cache_data.clear()
+        except Exception as e:
+            progress_area.empty()
+            st.error(f"실패: {e}")
 
 # ============================================================
 # 데이터 준비

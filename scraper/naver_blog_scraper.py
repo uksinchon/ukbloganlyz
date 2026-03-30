@@ -1,6 +1,7 @@
 """
 네이버 블로그 스크래퍼
 - RSS 피드 및 웹 스크래핑으로 블로그 포스트 수집
+- 모바일 페이지 스크래핑 (데스크탑보다 안정적)
 - 제목, 본문, 날짜, URL, 카테고리 추출
 """
 import re
@@ -10,15 +11,16 @@ import hashlib
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 import requests
 import feedparser
 from bs4 import BeautifulSoup
 
 from config.settings import (
-    ALL_BLOGS, DATA_DIR, NAVER_BLOG_RSS_URL,
+    ALL_BLOGS, OWN_BLOGS, DATA_DIR, NAVER_BLOG_RSS_URL,
     NAVER_BLOG_BASE_URL, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET,
+    CUSTOM_COMPETITORS_FILE,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,14 +29,21 @@ logger = logging.getLogger(__name__)
 POSTS_DB_FILE = DATA_DIR / "posts.json"
 
 
+def _load_custom_competitors() -> dict:
+    if CUSTOM_COMPETITORS_FILE.exists():
+        with open(CUSTOM_COMPETITORS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
 class NaverBlogScraper:
     """네이버 블로그 포스트 수집기"""
 
     HEADERS = {
         "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            "Version/17.0 Mobile/15E148 Safari/604.1"
         )
     }
 
@@ -42,6 +51,13 @@ class NaverBlogScraper:
         self.session = requests.Session()
         self.session.headers.update(self.HEADERS)
         self.posts_db = self._load_posts_db()
+        # 진행상황 콜백 (대시보드에서 사용)
+        self.on_progress: Optional[Callable[[str], None]] = None
+
+    def _log(self, msg: str):
+        logger.info(msg)
+        if self.on_progress:
+            self.on_progress(msg)
 
     # ----------------------------------------------------------
     # Persistence
@@ -61,6 +77,14 @@ class NaverBlogScraper:
         raw = f"{blog_id}:{title}:{date}"
         return hashlib.md5(raw.encode()).hexdigest()
 
+    def _get_all_target_blogs(self) -> dict:
+        """고정 블로그 + 사용자 추가 경쟁사"""
+        custom = _load_custom_competitors()
+        return {**ALL_BLOGS, **custom}
+
+    def _is_own_blog(self, blog_id: str) -> bool:
+        return blog_id in OWN_BLOGS.values()
+
     # ----------------------------------------------------------
     # RSS 수집
     # ----------------------------------------------------------
@@ -70,20 +94,28 @@ class NaverBlogScraper:
         posts = []
 
         try:
-            feed = feedparser.parse(url)
+            resp = self.session.get(url, timeout=15)
+            feed = feedparser.parse(resp.content)
+
             for entry in feed.entries[:max_items]:
                 pub_date = ""
                 if hasattr(entry, "published_parsed") and entry.published_parsed:
                     pub_date = time.strftime("%Y-%m-%d", entry.published_parsed)
+                elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
+                    pub_date = time.strftime("%Y-%m-%d", entry.updated_parsed)
 
                 # HTML 태그 제거한 본문 요약
                 summary = BeautifulSoup(
-                    entry.get("summary", ""), "html.parser"
+                    entry.get("summary", entry.get("description", "")), "html.parser"
                 ).get_text(strip=True)[:500]
+
+                title = entry.get("title", "").strip()
+                if not title:
+                    continue
 
                 post = {
                     "blog_id": blog_id,
-                    "title": entry.get("title", ""),
+                    "title": title,
                     "url": entry.get("link", ""),
                     "date": pub_date,
                     "summary": summary,
@@ -92,14 +124,58 @@ class NaverBlogScraper:
                 post["id"] = self._post_id(blog_id, post["title"], post["date"])
                 posts.append(post)
 
-            logger.info(f"[RSS] {blog_id}: {len(posts)}개 포스트 수집")
+            self._log(f"[RSS] {blog_id}: {len(posts)}개 수집")
         except Exception as e:
-            logger.error(f"[RSS] {blog_id} 수집 실패: {e}")
+            self._log(f"[RSS] {blog_id}: 실패 ({e})")
 
         return posts
 
     # ----------------------------------------------------------
-    # 웹 스크래핑 (RSS 실패 시 백업)
+    # 모바일 웹 스크래핑 (더 안정적)
+    # ----------------------------------------------------------
+    def fetch_mobile(self, blog_id: str, count: int = 30) -> list[dict]:
+        """모바일 블로그 페이지에서 포스트 목록 수집"""
+        posts = []
+        url = f"https://m.blog.naver.com/api/blogs/{blog_id}/post-list?categoryNo=0&itemCount={count}&page=1"
+
+        try:
+            resp = self.session.get(url, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("result", {}).get("items", [])
+
+                for item in items:
+                    title = item.get("titleWithInspectMessage", item.get("title", "")).strip()
+                    if not title:
+                        continue
+
+                    log_no = item.get("logNo", "")
+                    pub_date = ""
+                    add_date = item.get("addDate", "")
+                    if add_date and len(add_date) >= 10:
+                        pub_date = add_date[:10]
+
+                    post = {
+                        "blog_id": blog_id,
+                        "title": BeautifulSoup(title, "html.parser").get_text(strip=True),
+                        "url": f"https://blog.naver.com/{blog_id}/{log_no}",
+                        "date": pub_date,
+                        "summary": item.get("briefContents", "")[:500],
+                        "source": "mobile_api",
+                    }
+                    post["id"] = self._post_id(blog_id, post["title"], post["date"])
+                    posts.append(post)
+
+                self._log(f"[MOBILE] {blog_id}: {len(posts)}개 수집")
+            else:
+                self._log(f"[MOBILE] {blog_id}: HTTP {resp.status_code}")
+        except Exception as e:
+            self._log(f"[MOBILE] {blog_id}: 실패 ({e})")
+
+        return posts
+
+    # ----------------------------------------------------------
+    # 웹 스크래핑 (백업)
     # ----------------------------------------------------------
     def fetch_web(self, blog_id: str, pages: int = 3) -> list[dict]:
         """웹 스크래핑으로 포스트 목록 수집"""
@@ -115,7 +191,6 @@ class NaverBlogScraper:
                 resp.raise_for_status()
                 soup = BeautifulSoup(resp.text, "html.parser")
 
-                # 포스트 제목과 링크 추출
                 for item in soup.select(".post-item, .item, .title a, table.post-list td a"):
                     title = item.get_text(strip=True)
                     link = item.get("href", "")
@@ -133,11 +208,12 @@ class NaverBlogScraper:
                         post["id"] = self._post_id(blog_id, title, post["date"])
                         posts.append(post)
 
-                time.sleep(1)  # 요청 간격
+                time.sleep(1)
             except Exception as e:
-                logger.error(f"[WEB] {blog_id} page {page} 수집 실패: {e}")
+                self._log(f"[WEB] {blog_id} page {page}: 실패 ({e})")
 
-        logger.info(f"[WEB] {blog_id}: {len(posts)}개 포스트 수집")
+        if posts:
+            self._log(f"[WEB] {blog_id}: {len(posts)}개 수집")
         return posts
 
     # ----------------------------------------------------------
@@ -146,7 +222,6 @@ class NaverBlogScraper:
     def fetch_naver_search(self, blog_id: str, query: str = "", max_items: int = 100) -> list[dict]:
         """네이버 검색 API로 블로그 포스트 검색"""
         if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
-            logger.warning("네이버 API 키가 설정되지 않음 - 검색 API 건너뜀")
             return []
 
         search_query = f"site:blog.naver.com/{blog_id} {query}".strip()
@@ -186,42 +261,12 @@ class NaverBlogScraper:
 
                 time.sleep(0.5)
             except Exception as e:
-                logger.error(f"[SEARCH] {blog_id} 검색 실패: {e}")
+                self._log(f"[SEARCH] {blog_id}: 실패 ({e})")
                 break
 
-        logger.info(f"[SEARCH] {blog_id}: {len(posts)}개 포스트 수집")
+        if posts:
+            self._log(f"[SEARCH] {blog_id}: {len(posts)}개 수집")
         return posts
-
-    # ----------------------------------------------------------
-    # 포스트 본문 상세 수집
-    # ----------------------------------------------------------
-    def fetch_post_content(self, post_url: str) -> Optional[str]:
-        """개별 포스트의 본문 내용 수집"""
-        try:
-            # 네이버 블로그는 iframe 내부에 본문이 있음
-            resp = self.session.get(post_url, timeout=15)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-
-            # iframe src 추출
-            iframe = soup.select_one("iframe#mainFrame")
-            if iframe and iframe.get("src"):
-                iframe_url = "https://blog.naver.com" + iframe["src"]
-                resp2 = self.session.get(iframe_url, timeout=15)
-                resp2.raise_for_status()
-                soup2 = BeautifulSoup(resp2.text, "html.parser")
-
-                # 본문 영역 추출
-                content_area = soup2.select_one(
-                    ".se-main-container, .post-view, #postViewArea, .se_component_wrap"
-                )
-                if content_area:
-                    return content_area.get_text(strip=True)[:2000]
-
-            return None
-        except Exception as e:
-            logger.error(f"본문 수집 실패 {post_url}: {e}")
-            return None
 
     # ----------------------------------------------------------
     # 전체 수집 실행
@@ -230,47 +275,47 @@ class NaverBlogScraper:
         """모든 블로그에서 포스트 수집"""
         all_posts = []
         existing_ids = {p["id"] for p in self.posts_db["posts"]}
+        target_blogs = self._get_all_target_blogs()
 
-        for name, blog_id in ALL_BLOGS.items():
-            logger.info(f"수집 시작: {name} ({blog_id})")
+        self._log(f"스크래핑 시작: {len(target_blogs)}개 블로그")
 
-            # 1차: RSS 수집
-            posts = self.fetch_rss(blog_id)
+        for name, blog_id in target_blogs.items():
+            self._log(f"수집 중: {name} ({blog_id})")
 
-            # RSS가 비어있으면 웹 스크래핑
+            # 1차: 모바일 API (가장 안정적)
+            posts = self.fetch_mobile(blog_id)
+
+            # 2차: RSS
+            if not posts:
+                posts = self.fetch_rss(blog_id)
+
+            # 3차: 웹 스크래핑
             if not posts:
                 posts = self.fetch_web(blog_id)
 
-            # 네이버 검색 API 추가
+            # 4차: 네이버 검색 API (키 있을 때만)
             search_posts = self.fetch_naver_search(blog_id)
             posts.extend(search_posts)
 
-            # 중복 제거
+            # 중복 제거 및 저장
             new_posts = []
             for p in posts:
                 if p["id"] not in existing_ids:
                     p["blog_name"] = name
-                    p["is_own"] = blog_id in ("ukcentre", "ukcentre1")
+                    p["is_own"] = self._is_own_blog(blog_id)
                     p["collected_at"] = datetime.now().isoformat()
-
-                    # 본문 수집 (선택적)
-                    if fetch_content and not p.get("summary"):
-                        content = self.fetch_post_content(p["url"])
-                        if content:
-                            p["summary"] = content[:500]
-
                     new_posts.append(p)
                     existing_ids.add(p["id"])
 
             all_posts.extend(new_posts)
-            logger.info(f"{name}: 신규 {len(new_posts)}개 수집")
-            time.sleep(2)  # 블로그 간 간격
+            self._log(f"  → {name}: 신규 {len(new_posts)}개")
+            time.sleep(1)  # 블로그 간 간격
 
         # DB에 저장
         self.posts_db["posts"].extend(all_posts)
         self._save_posts_db()
 
-        logger.info(f"전체 신규 포스트: {len(all_posts)}개 수집 완료")
+        self._log(f"스크래핑 완료: 총 {len(all_posts)}개 신규 포스트")
         return all_posts
 
     def get_posts_by_period(
