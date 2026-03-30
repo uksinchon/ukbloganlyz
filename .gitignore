@@ -5,10 +5,15 @@ __pycache__/
 *.pyo
 
 # Data & Reports (generated)
-data/*.json
 data/*.db
+data/processed_emails.json
+data/publish_log.json
 reports/output/
 logs/
+
+# Keep sample/analysis data for cloud deployment
+!data/posts.json
+!data/analysis_*.json
 
 # Credentials
 credentials.json
