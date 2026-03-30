@@ -25,6 +25,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from config.settings import (
     DATA_DIR, SINCHON_BLOGS, HQ_BLOGS, OWN_BLOGS,
     COMPETITOR_BLOGS, ALL_BLOGS, CUSTOM_COMPETITORS_FILE,
+    TOPIC_CATEGORIES,
 )
 
 # ============================================================
@@ -92,16 +93,33 @@ def load_latest_analysis():
             return json.load(f)
     return None
 
+def _categorize_post(title: str, summary: str) -> list[str]:
+    """제목+요약 텍스트에서 주제 카테고리를 자동 분류"""
+    text = f"{title} {summary}".lower()
+    categories = []
+    for category, keywords in TOPIC_CATEGORIES.items():
+        for keyword in keywords:
+            if keyword.lower() in text:
+                categories.append(category)
+                break
+    return categories if categories else ["기타"]
+
 def posts_to_df(posts):
     if not posts:
         return pd.DataFrame()
     df = pd.DataFrame(posts)
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    if "categories" in df.columns:
-        df["main_category"] = df["categories"].apply(
-            lambda x: x[0] if isinstance(x, list) and x else "미분류"
+    # categories가 없으면 제목+요약 기반으로 자동 분류
+    if "categories" not in df.columns:
+        df["categories"] = df.apply(
+            lambda row: _categorize_post(
+                row.get("title", ""), row.get("summary", "")
+            ), axis=1,
         )
+    df["main_category"] = df["categories"].apply(
+        lambda x: x[0] if isinstance(x, list) and x else "미분류"
+    )
     return df
 
 # ============================================================
