@@ -198,10 +198,13 @@ posts = load_posts()
 df = posts_to_df(posts)
 analysis = load_latest_analysis()
 
-if not df.empty:
-    cutoff = datetime.now() - timedelta(days=period_days)
-    if "date" in df.columns:
-        df = df[df["date"] >= cutoff]
+if not df.empty and "date" in df.columns:
+    if period == "당일":
+        # 당일 = 오늘 자정(00:00)부터
+        cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        cutoff = datetime.now() - timedelta(days=period_days)
+    df = df[df["date"] >= cutoff]
 
 # ============================================================
 # 메인 대시보드 헤더

@@ -133,6 +133,41 @@ class NaverBlogScraper:
     # ----------------------------------------------------------
     # 모바일 웹 스크래핑 (더 안정적)
     # ----------------------------------------------------------
+    @staticmethod
+    def _parse_naver_date(raw: str) -> str:
+        """네이버 API 날짜를 YYYY-MM-DD로 변환
+        지원 형식: '2026. 3. 31. 14:30', '2026-03-31', '20260331',
+                   Unix ms timestamp (숫자 문자열)
+        """
+        if not raw:
+            return ""
+        raw = str(raw).strip()
+
+        # Unix timestamp (밀리초)
+        if raw.isdigit() and len(raw) >= 10:
+            try:
+                ts = int(raw) / 1000 if len(raw) >= 13 else int(raw)
+                return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+            except (ValueError, OSError):
+                pass
+
+        # "2026. 3. 31." 또는 "2026. 3. 31. 14:30" (한국식 점 구분)
+        m = re.match(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})", raw)
+        if m:
+            return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+
+        # "2026-03-31" 또는 "2026-03-31T..."  (ISO 형식)
+        m = re.match(r"(\d{4}-\d{2}-\d{2})", raw)
+        if m:
+            return m.group(1)
+
+        # "20260331" (숫자 8자리)
+        m = re.match(r"(\d{4})(\d{2})(\d{2})", raw)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+
+        return ""
+
     def fetch_mobile(self, blog_id: str, count: int = 30) -> list[dict]:
         """모바일 블로그 페이지에서 포스트 목록 수집"""
         posts = []
@@ -150,10 +185,8 @@ class NaverBlogScraper:
                         continue
 
                     log_no = item.get("logNo", "")
-                    pub_date = ""
                     add_date = item.get("addDate", "")
-                    if add_date and len(add_date) >= 10:
-                        pub_date = add_date[:10]
+                    pub_date = self._parse_naver_date(add_date)
 
                     post = {
                         "blog_id": blog_id,
