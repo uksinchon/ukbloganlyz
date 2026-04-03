@@ -1,0 +1,54 @@
+name: Daily Blog Analysis Report
+
+on:
+  schedule:
+    # 매일 23:50 KST = 14:50 UTC
+    - cron: '50 14 * * *'
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  daily-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore posts database
+        # 이전 실행에서 저장된 posts.json 복원
+        uses: actions/cache@v4
+        with:
+          path: data/posts.json
+          key: posts-db-${{ github.run_number }}
+          restore-keys: |
+            posts-db-
+
+      - name: Ensure data directory
+        run: mkdir -p data
+
+      - name: Run daily report
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: python scripts/daily_report.py
+
+      - name: Save posts database
+        # posts.json을 다음 실행을 위해 캐시에 저장
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/posts.json
+          key: posts-db-${{ github.run_number }}

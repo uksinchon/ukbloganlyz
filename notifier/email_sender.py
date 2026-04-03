@@ -165,7 +165,7 @@ class EmailSender:
             </div>
             <div class="footer">
                 <p>UK Centre Blog Analysis System | 자동 생성 리포트</p>
-                <p>대시보드 접속: http://localhost:8501</p>
+                <p>대시보드 접속: https://uksinchon-ukbloganlyz-dashboardapp.streamlit.app</p>
             </div>
         </body>
         </html>

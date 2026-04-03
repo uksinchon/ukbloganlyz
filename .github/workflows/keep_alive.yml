@@ -1,0 +1,27 @@
+name: Keep Streamlit Cloud Alive
+
+on:
+  schedule:
+    # 매 25분마다 핑 (Streamlit Cloud는 비활성 시 슬립 모드 진입)
+    - cron: '*/25 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Ping Streamlit App
+        run: |
+          URL="https://uksinchon-ukbloganlyz-dashboardapp.streamlit.app"
+          echo "Pinging $URL ..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL" || echo "000")
+          echo "HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "000" ]; then
+            echo "::warning::Connection timed out or failed"
+          elif [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::warning::Received HTTP $HTTP_CODE"
+          else
+            echo "App is alive (HTTP $HTTP_CODE)"
+          fi
