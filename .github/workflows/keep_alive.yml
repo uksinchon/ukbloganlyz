@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Ping Streamlit App
         run: |
-          URL="https://uksinchon-ukbloganlyz-dashboardapp.streamlit.app"
+          URL="https://ukbloganlyz.streamlit.app"
           echo "Pinging $URL ..."
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL" || echo "000")
           echo "HTTP status: $HTTP_CODE"

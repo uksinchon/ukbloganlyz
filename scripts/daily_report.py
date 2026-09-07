@@ -242,7 +242,7 @@ def step4_send_email(analysis: dict):
     # 대시보드 링크 업데이트
     html = html.replace(
         "http://localhost:8501",
-        "https://uksinchon-ukbloganlyz-dashboardapp.streamlit.app",
+        "https://ukbloganlyz.streamlit.app",
     )
 
     success = sender.send_report_email(
