@@ -269,7 +269,7 @@ class TrendAnalyzer:
 한국어로 작성하고, 실행 가능한 구체적 인사이트를 제공하세요."""
 
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-opus-5",
                 max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}],
             )

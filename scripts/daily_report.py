@@ -169,7 +169,7 @@ def step3_ai_analysis(posts: list[dict]) -> dict:
         import anthropic
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-opus-5",
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )
