@@ -274,7 +274,7 @@ class TrendAnalyzer:
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            return response.content[0].text
+            return "".join(b.text for b in response.content if b.type == "text")
 
         except Exception as e:
             logger.error(f"AI 분석 실패: {e}")

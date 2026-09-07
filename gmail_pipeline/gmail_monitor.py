@@ -312,7 +312,7 @@ class BlogPostGenerator:
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            result_text = response.content[0].text
+            result_text = "".join(b.text for b in response.content if b.type == "text")
             return self._parse_generated_content(result_text, email)
 
         except Exception as e:
@@ -383,7 +383,7 @@ class BlogPostGenerator:
 블로그 URL: {blog_url}"""
                 }],
             )
-            return response.content[0].text
+            return "".join(b.text for b in response.content if b.type == "text")
 
         except Exception as e:
             logger.error(f"쓰레드 포스트 생성 실패: {e}")

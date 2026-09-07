@@ -173,7 +173,7 @@ def step3_ai_analysis(posts: list[dict]) -> dict:
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )
-        ai_text = response.content[0].text
+        ai_text = "".join(b.text for b in response.content if b.type == "text")
         logger.info("AI 분석 완료")
     except Exception as e:
         logger.error(f"AI 분석 실패: {e}")

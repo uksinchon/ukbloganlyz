@@ -552,7 +552,7 @@ ANTHROPIC_API_KEY = "sk-ant-여기에_키_입력"
                         max_tokens=3000,
                         messages=[{"role": "user", "content": prompt}],
                     )
-                    ai_result = response.content[0].text
+                    ai_result = "".join(b.text for b in response.content if b.type == "text")
 
                     # 저장
                     analysis_save = {
